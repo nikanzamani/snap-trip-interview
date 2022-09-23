@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/go-redis/redis/v8"
+	_ "github.com/lib/pq"
 )
 
+// TODO: respond with ID
 type priceChangeRequest struct {
 	Origin       string `json:"origin"`
 	Destination  string `json:"destination"`
@@ -34,7 +38,12 @@ type ruleCreationRequest struct {
 
 var ctx = context.Background()
 
+const psqlConnect = "host=localhost port=5432 user=postgres password=password1234 dbname=postgres sslmode=disable"
+
+// TODO:generalize psql connection
+
 func main() {
+	load_data()
 
 	http.HandleFunc("/price_request", price_request)
 
@@ -161,17 +170,62 @@ func set_rule(query string, valueType int, amount int) {
 		Password: "",
 		DB:       0,
 	})
-	vals, err := rdb.Get(ctx, query+strconv.Itoa(valueType)).Result()
-	if err == redis.Nil {
-		vals = "0"
-	} else if err != nil {
-		panic(err)
+	err := rdb.Set(ctx, query+strconv.Itoa(valueType), amount, 0).Err()
+	check_error(err)
+
+	db, err := sql.Open("postgres", psqlConnect)
+	check_error(err)
+	defer db.Close()
+	upsertStmt := `INSERT INTO snap (rule,amount) VALUES ( $1 ,$2)   
+	ON CONFLICT (rule)
+	DO UPDATE SET amount=$2;
+	`
+	_, e := db.Exec(upsertStmt, query+strconv.Itoa(valueType), amount)
+	check_error(e)
+}
+
+func load_data() {
+
+	fmt.Println("loading data from postgreSQL to redis...")
+
+	db, err := sql.Open("postgres", psqlConnect)
+	check_error(err)
+	defer db.Close()
+	creatTableStmt := `CREATE TABLE IF NOT EXISTS snap(
+		id SERIAL PRIMARY KEY,
+		rule VARCHAR(100) UNIQUE NOT NULL, 
+		amount INT NOT NULL
+	 );`
+	_, e := db.Exec(creatTableStmt)
+	check_error(e)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       0,
+	})
+
+	rows, err := db.Query(`SELECT "rule", "amount" FROM "snap"`)
+	check_error(err)
+
+	defer rows.Close()
+	for rows.Next() {
+		var rule string
+		var amount int
+
+		err = rows.Scan(&rule, &amount)
+		check_error(err)
+
+		err := rdb.Set(ctx, rule, amount, 0).Err()
+		check_error(err)
 	}
-	vali, _ := strconv.Atoi(vals)
-	if vali < amount {
-		err := rdb.Set(ctx, query+strconv.Itoa(valueType), amount, 0).Err()
-		if err != nil {
-			panic(err)
-		}
+	check_error(err)
+
+	fmt.Println("loading data is done!")
+}
+
+func check_error(err error) {
+	if err != nil {
+		panic(err)
 	}
 }
