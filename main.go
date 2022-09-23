@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
+	"strconv"
+
+	"github.com/go-redis/redis/v8"
 )
 
 type priceChangeRequest struct {
@@ -29,12 +32,9 @@ type ruleCreationRequest struct {
 	AmountValue int      `json:"amountValue"`
 }
 
+var ctx = context.Background()
+
 func main() {
-
-	// file,err:=os.Open("city.csv")
-	// if err==nil{
-
-	// }
 
 	http.HandleFunc("/price_request", price_request)
 
@@ -54,7 +54,6 @@ func price_request(w http.ResponseWriter, r *http.Request) {
 func rule_creation(w http.ResponseWriter, r *http.Request) {
 	var rules []ruleCreationRequest
 	json.NewDecoder(r.Body).Decode(&rules)
-	fmt.Println(rules[0].AmountType, rules[0].AmountValue)
 	creat_rules(rules)
 	// TODO:return correct response
 	// json.NewEncoder(w).Encode(peter)
@@ -95,7 +94,6 @@ func creat_rules(rules []ruleCreationRequest) {
 	// TODO: add error handling
 	// city,airline,agency,supplier doesn't exist
 	// amountType isn't correct
-	// percent type above 100
 
 	for _, rule := range rules {
 		if len(rule.Routes) == 0 {
@@ -130,23 +128,50 @@ func creat_rules(rules []ruleCreationRequest) {
 }
 
 func get_rule(query string) (fixed, percent int) {
-	reddis := make(map[string][2]int)
-	reddis[",,,,,"] = [2]int{100, 5}
-	if val, ok := reddis[query]; ok {
-		return val[0], val[1]
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       0,
+	})
+	var ans0, ans1 int
+	val0, err := rdb.Get(ctx, query+"0").Result()
+	if err == redis.Nil {
+		ans0 = 0
+	} else if err != nil {
+		panic(err)
 	} else {
-		return 0, 0
+		ans0, _ = strconv.Atoi(val0)
 	}
 
+	val1, err := rdb.Get(ctx, query+"1").Result()
+	if err == redis.Nil {
+		ans1 = 0
+	} else if err != nil {
+		panic(err)
+	} else {
+		ans1, _ = strconv.Atoi(val1)
+	}
+
+	return ans0, ans1
 }
 func set_rule(query string, valueType int, amount int) {
-	reddis := make(map[string][2]int)
-	if _, ok := reddis[query]; !ok {
-		reddis[query] = [2]int{0, 0}
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       0,
+	})
+	vals, err := rdb.Get(ctx, query+strconv.Itoa(valueType)).Result()
+	if err == redis.Nil {
+		vals = "0"
+	} else if err != nil {
+		panic(err)
 	}
-	if reddis[query][valueType] < amount {
-		ans := reddis[query]
-		ans[valueType] = amount
-		reddis[query] = ans
+	vali, _ := strconv.Atoi(vals)
+	if vali < amount {
+		err := rdb.Set(ctx, query+strconv.Itoa(valueType), amount, 0).Err()
+		if err != nil {
+			panic(err)
+		}
 	}
 }
