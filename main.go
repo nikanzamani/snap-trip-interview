@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -49,7 +50,7 @@ func main() {
 
 	http.HandleFunc("/rule_creation", rule_creation)
 
-	http.ListenAndServe(":8080", nil)
+	log.Fatal((http.ListenAndServe(":8080", nil)))
 }
 
 func price_request(w http.ResponseWriter, r *http.Request) {
@@ -143,6 +144,7 @@ func get_rule(query string) (fixed, percent int) {
 		Password: "",
 		DB:       0,
 	})
+	defer rdb.Close()
 	var ans0, ans1 int
 	val0, err := rdb.Get(ctx, query+"0").Result()
 	if err == redis.Nil {
@@ -170,6 +172,7 @@ func set_rule(query string, valueType int, amount int) {
 		Password: "",
 		DB:       0,
 	})
+	defer rdb.Close()
 	err := rdb.Set(ctx, query+strconv.Itoa(valueType), amount, 0).Err()
 	check_error(err)
 
