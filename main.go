@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"sort"
 	"strconv"
 
 	"github.com/go-redis/redis/v8"
@@ -14,6 +17,7 @@ import (
 )
 
 // TODO: respond with ID
+// TODO: add apache bench explanation to readme
 type priceChangeRequest struct {
 	Origin       string `json:"origin"`
 	Destination  string `json:"destination"`
@@ -36,15 +40,54 @@ type ruleCreationRequest struct {
 	AmountType  string   `json:"amountType"`
 	AmountValue int      `json:"amountValue"`
 }
+type ruleCreationResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+func (r ruleCreationRequest) validate_rule() (b bool) {
+	for _, route := range r.Routes {
+		if !(search_validation(Vcities, route.Origin) && search_validation(Vcities, route.Destination)) {
+			return false
+		}
+	}
+	for _, agency := range r.Agencies {
+		if !(search_validation(Vagencies, agency)) {
+			return false
+		}
+	}
+	for _, airline := range r.Airlines {
+		if !(search_validation(Vairlines, airline)) {
+			return false
+		}
+	}
+	for _, supplier := range r.Suppliers {
+		if !(search_validation(Vsuppliers, supplier)) {
+			return false
+		}
+	}
+	if r.AmountType != "PERCENTAGE" && r.AmountType != "FIXED" {
+		return false
+	}
+	return true
+}
+
+var Vcities []string
+var Vairlines []string
+var Vagencies []string
+var Vsuppliers []string
 
 var ctx = context.Background()
 
 const psqlConnect = "host=localhost port=5432 user=postgres password=password1234 dbname=postgres sslmode=disable"
 
-// TODO:generalize psql connection
+// TODO: generalize psql connection
+// TODO: combine percent and fixed in one call
 
 func main() {
 	load_data()
+
+	read_validation()
 
 	http.HandleFunc("/price_request", price_request)
 
@@ -64,9 +107,8 @@ func price_request(w http.ResponseWriter, r *http.Request) {
 func rule_creation(w http.ResponseWriter, r *http.Request) {
 	var rules []ruleCreationRequest
 	json.NewDecoder(r.Body).Decode(&rules)
-	creat_rules(rules)
-	// TODO:return correct response
-	// json.NewEncoder(w).Encode(peter)
+	resp := creat_rules(rules)
+	json.NewEncoder(w).Encode(resp)
 }
 
 func add_markups(prices []priceChangeRequest) []priceChangeRequest {
@@ -100,10 +142,18 @@ func add_markups(prices []priceChangeRequest) []priceChangeRequest {
 	}
 	return prices
 }
-func creat_rules(rules []ruleCreationRequest) {
-	// TODO: add error handling
-	// city,airline,agency,supplier doesn't exist
-	// amountType isn't correct
+func creat_rules(rules []ruleCreationRequest) (r ruleCreationResponse) {
+	// TODO: ask ...
+	// should replace rule with lower amount?
+	// should return error message with detail?
+	// is normal for docker redis to slow down so much?
+
+	for ind, rule := range rules {
+		b := rule.validate_rule()
+		if !b {
+			return ruleCreationResponse{Status: "FAILED", Message: "invalid rule at index: " + strconv.Itoa(ind)}
+		}
+	}
 
 	for _, rule := range rules {
 		if len(rule.Routes) == 0 {
@@ -127,14 +177,13 @@ func creat_rules(rules []ruleCreationRequest) {
 							set_rule(query, 0, rule.AmountValue)
 						} else if rule.AmountType == "PERCENTAGE" {
 							set_rule(query, 1, rule.AmountValue)
-						} else {
-							// TODO:
 						}
 					}
 				}
 			}
 		}
 	}
+	return ruleCreationResponse{Status: "SUCCESS"}
 }
 
 func get_rule(query string) (fixed, percent int) {
@@ -186,7 +235,6 @@ func set_rule(query string, valueType int, amount int) {
 	_, e := db.Exec(upsertStmt, query+strconv.Itoa(valueType), amount)
 	check_error(e)
 }
-
 func load_data() {
 
 	fmt.Println("loading data from postgreSQL to redis...")
@@ -198,7 +246,7 @@ func load_data() {
 		id SERIAL PRIMARY KEY,
 		rule VARCHAR(100) UNIQUE NOT NULL, 
 		amount INT NOT NULL
-	 );`
+		);`
 	_, e := db.Exec(creatTableStmt)
 	check_error(e)
 
@@ -227,8 +275,55 @@ func load_data() {
 	fmt.Println("loading data is done!")
 }
 
+func read_validation() {
+	file, err := os.Open("valid/city.csv")
+	check_error(err)
+	reader := csv.NewReader(file)
+	records, _ := reader.ReadAll()
+	for _, row := range records {
+		Vcities = append(Vcities, row[2])
+	}
+	Vcities = append(Vcities, "")
+	sort.Slice(Vcities, func(i, j int) bool { return Vcities[i] < Vcities[j] })
+
+	file, err = os.Open("valid/agency.csv")
+	check_error(err)
+	reader = csv.NewReader(file)
+	records, _ = reader.ReadAll()
+	for _, row := range records {
+		Vagencies = append(Vagencies, row[2])
+	}
+	Vagencies = append(Vagencies, "")
+	sort.Slice(Vagencies, func(i, j int) bool { return Vagencies[i] < Vagencies[j] })
+
+	file, err = os.Open("valid/airline.csv")
+	check_error(err)
+	reader = csv.NewReader(file)
+	records, _ = reader.ReadAll()
+	for _, row := range records {
+		Vairlines = append(Vairlines, row[0])
+	}
+	Vairlines = append(Vairlines, "")
+	sort.Slice(Vagencies, func(i, j int) bool { return Vagencies[i] < Vagencies[j] })
+
+	file, err = os.Open("valid/supplier.csv")
+	check_error(err)
+	reader = csv.NewReader(file)
+	records, _ = reader.ReadAll()
+	for _, row := range records {
+		Vsuppliers = append(Vsuppliers, row[2])
+	}
+	Vsuppliers = append(Vsuppliers, "")
+	sort.Slice(Vsuppliers, func(i, j int) bool { return Vsuppliers[i] < Vsuppliers[j] })
+}
+
 func check_error(err error) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func search_validation(v []string, q string) (b bool) {
+	i := sort.Search(len(v), func(j int) bool { return v[j] >= q })
+	return v[i] == q
 }
