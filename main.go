@@ -50,22 +50,22 @@ type ruleCreationResponse struct {
 
 func (r ruleCreationRequest) validate_rule() (b bool) {
 	for _, route := range r.Routes {
-		if !(search_validation(Vcities, route.Origin) && search_validation(Vcities, route.Destination)) {
+		if !(search_validation(Vcities, strings.ToUpper(route.Origin)) && search_validation(Vcities, strings.ToUpper(route.Destination))) {
 			return false
 		}
 	}
 	for _, agency := range r.Agencies {
-		if !(search_validation(Vagencies, agency)) {
+		if !(search_validation(Vagencies, strings.ToUpper(agency))) {
 			return false
 		}
 	}
 	for _, airline := range r.Airlines {
-		if !(search_validation(Vairlines, airline)) {
+		if !(search_validation(Vairlines, strings.ToUpper(airline))) {
 			return false
 		}
 	}
 	for _, supplier := range r.Suppliers {
-		if !(search_validation(Vsuppliers, supplier)) {
+		if !(search_validation(Vsuppliers, strings.ToUpper(supplier))) {
 			return false
 		}
 	}
@@ -128,7 +128,7 @@ func add_markups(prices []priceChangeRequest) []priceChangeRequest {
 			query := ""
 			for j := 0; j < 5; j++ {
 				if (i>>j)&1 == 1 {
-					query = query + arrPrice[j]
+					query = query + strings.ToUpper(arrPrice[j])
 				}
 				query = query + ","
 			}
