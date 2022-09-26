@@ -89,6 +89,8 @@ func main() {
 
 	read_validation()
 
+	http.HandleFunc("/test", test)
+
 	http.HandleFunc("/price_request", price_request)
 
 	http.HandleFunc("/rule_creation", rule_creation)
@@ -270,8 +272,6 @@ func load_data() {
 		err := rdb.Set(ctx, rule, amount, 0).Err()
 		check_error(err)
 	}
-	check_error(err)
-
 	fmt.Println("loading data is done!")
 }
 
@@ -304,17 +304,22 @@ func read_validation() {
 		Vairlines = append(Vairlines, row[0])
 	}
 	Vairlines = append(Vairlines, "")
-	sort.Slice(Vagencies, func(i, j int) bool { return Vagencies[i] < Vagencies[j] })
+	sort.Slice(Vairlines, func(i, j int) bool { return Vairlines[i] < Vairlines[j] })
 
 	file, err = os.Open("valid/supplier.csv")
 	check_error(err)
 	reader = csv.NewReader(file)
 	records, _ = reader.ReadAll()
 	for _, row := range records {
-		Vsuppliers = append(Vsuppliers, row[2])
+		Vsuppliers = append(Vsuppliers, strings.ToUpper(row[2]))
 	}
 	Vsuppliers = append(Vsuppliers, "")
 	sort.Slice(Vsuppliers, func(i, j int) bool { return Vsuppliers[i] < Vsuppliers[j] })
+}
+
+func search_validation(v []string, q string) (b bool) {
+	i := sort.Search(len(v), func(j int) bool { return v[j] >= q })
+	return v[i] == q
 }
 
 func check_error(err error) {
@@ -322,8 +327,22 @@ func check_error(err error) {
 		panic(err)
 	}
 }
+func test(w http.ResponseWriter, r *http.Request) {
+	// fmt.Fprintf(w, "hello there\n")
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+	})
+	defer rdb.Close()
+	a, _ := rdb.Ping(ctx).Result()
 
-func search_validation(v []string, q string) (b bool) {
-	i := sort.Search(len(v), func(j int) bool { return v[j] >= q })
-	return v[i] == q
+	fmt.Fprint(w, a)
+
+	db, err := sql.Open("postgres", psqlConnect)
+	check_error(err)
+	defer db.Close()
+	b := db.Ping()
+
+	fmt.Fprint(w, b)
+
 }
