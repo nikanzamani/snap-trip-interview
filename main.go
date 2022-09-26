@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
 	"encoding/csv"
@@ -11,12 +12,14 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/go-redis/redis/v8"
 	_ "github.com/lib/pq"
 )
 
 // TODO: respond with ID
+// TODO: return null in case of a successful rule creation
 // TODO: add apache bench explanation to readme
 type priceChangeRequest struct {
 	Origin       string `json:"origin"`
@@ -79,12 +82,14 @@ var Vsuppliers []string
 
 var ctx = context.Background()
 
-const psqlConnect = "host=localhost port=5432 user=postgres password=password1234 dbname=postgres sslmode=disable"
+var psqlConnect string
+var redis_opt redis.Options
 
-// TODO: generalize psql connection
 // TODO: combine percent and fixed in one call
 
 func main() {
+	load_env()
+
 	load_data()
 
 	read_validation()
@@ -190,11 +195,7 @@ func creat_rules(rules []ruleCreationRequest) (r ruleCreationResponse) {
 
 func get_rule(query string) (fixed, percent int) {
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
-		DB:       0,
-	})
+	rdb := redis.NewClient(&redis_opt)
 	defer rdb.Close()
 	var ans0, ans1 int
 	val0, err := rdb.Get(ctx, query+"0").Result()
@@ -218,11 +219,7 @@ func get_rule(query string) (fixed, percent int) {
 	return ans0, ans1
 }
 func set_rule(query string, valueType int, amount int) {
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
-		DB:       0,
-	})
+	rdb := redis.NewClient(&redis_opt)
 	defer rdb.Close()
 	err := rdb.Set(ctx, query+strconv.Itoa(valueType), amount, 0).Err()
 	check_error(err)
@@ -230,7 +227,7 @@ func set_rule(query string, valueType int, amount int) {
 	db, err := sql.Open("postgres", psqlConnect)
 	check_error(err)
 	defer db.Close()
-	upsertStmt := `INSERT INTO snap (rule,amount) VALUES ( $1 ,$2)   
+	upsertStmt := `INSERT INTO snap (rule,amount) VALUES ( $1 ,$2)
 	ON CONFLICT (rule)
 	DO UPDATE SET amount=$2;
 	`
@@ -252,11 +249,7 @@ func load_data() {
 	_, e := db.Exec(creatTableStmt)
 	check_error(e)
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
-		DB:       0,
-	})
+	rdb := redis.NewClient(&redis_opt)
 
 	rows, err := db.Query(`SELECT "rule", "amount" FROM "snap"`)
 	check_error(err)
@@ -273,6 +266,40 @@ func load_data() {
 		check_error(err)
 	}
 	fmt.Println("loading data is done!")
+}
+
+func load_env() {
+	if _, err := os.Stat(".env"); err == nil {
+		file, err := os.Open(".env")
+		check_error(err)
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			e := strings.Split(scanner.Text(), "=")
+			if len(e) == 2 {
+				os.Setenv(e[0], e[1])
+			}
+		}
+		err = scanner.Err()
+		check_error(err)
+	}
+	// redis env
+	env_exist_default("REDIS_HOST", "localhost")
+	env_exist_default("REDIS_PORT", "6379")
+	//postgres env
+	env_exist_default("POSTGRES_HOST", "localhost")
+	env_exist_default("POSTGRES_PORT", "5432")
+	env_exist_default("POSTGRES_USER", "postgres")
+	env_exist_default("POSTGRES_DB_NAME", os.Getenv("POSTGRES_USER"))
+	psqlConnect = "host=$POSTGRES_HOST port=$POSTGRES_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB_NAME sslmode=disable"
+	psqlConnect = os.ExpandEnv(psqlConnect)
+
+	redis_opt = redis.Options{
+		Addr:     os.ExpandEnv("$REDIS_HOST:$REDIS_PORT"),
+		Password: os.Getenv("REDIS_PASSWORD"),
+		DB:       0,
+	}
 }
 
 func read_validation() {
@@ -325,6 +352,12 @@ func search_validation(v []string, q string) (b bool) {
 func check_error(err error) {
 	if err != nil {
 		panic(err)
+	}
+}
+
+func env_exist_default(key, default_val string) {
+	if _, ok := os.LookupEnv(key); !ok {
+		os.Setenv(key, default_val)
 	}
 }
 func test(w http.ResponseWriter, r *http.Request) {
