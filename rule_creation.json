@@ -1,0 +1,15 @@
+[
+  {
+    "routes": [
+      {
+        "origin": "THR",
+        "destination": "IFN"
+      }
+    ],
+    "airlines": null,
+    "agencies": null,
+    "suppliers": null,
+    "amountType": "PERCENTAGE",
+    "amountValue": 2
+  }
+]

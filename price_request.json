@@ -1,0 +1,13 @@
+[
+	{
+		"origin": "THR",
+		"destination": "IFN",
+		"airline": "zv",
+		"agency": "ELVA_SEIR",
+		"supplier": "aseman",
+		"basePrice": 15000000,
+		"markup": 0,
+		"payablePrice": 0
+	}
+]
+
