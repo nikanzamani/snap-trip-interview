@@ -2,11 +2,23 @@ from urllib import request
 from random import randint,choice
 from time import perf_counter
 from concurrent.futures import ThreadPoolExecutor
+import os
 import csv
 import json
 
 print("I advise using \"apache bench\" as detailed in the readme, instead of this in-house solution")
 
+
+if os.path.isfile(".env"):
+    with open(".env") as f:
+        envs=f.read().split("\n")        
+        for env in envs:
+            e=env.split("=")
+            if len(e)==2:
+                os.environ[e[0]]=e[1]
+
+if os.environ["APP_PORT"]=="":
+    os.environ["APP_PORT"]=="8080"
 
 cities=[]
 airlines=[]
@@ -32,7 +44,6 @@ with open("valid/supplier.csv","r") as f:
     csvreader=csv.reader(f)
     for row in csvreader:
         suppliers.append(row[2])
-
 all_req=[]
 total_req=0
 for _ in range(100):
@@ -52,7 +63,7 @@ for _ in range(100):
         }
         req.append(k)
     data=json.dumps(req).encode("utf8")
-    req =  request.Request("http://localhost:8080/price_request", data=data)
+    req =  request.Request(f"http://localhost:{os.environ['APP_PORT']}/price_request", data=data)
     all_req.append(req)
 
 
