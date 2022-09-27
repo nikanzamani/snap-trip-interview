@@ -61,6 +61,5 @@ with ThreadPoolExecutor() as executor:
     a=executor.map(request.urlopen,all_req)
 t2=perf_counter()
 
-print(f"request per second: {int(total_req/(t2-t1))}")
+print(f"request per second: {round(total_req/(t2-t1),2)}")
 print(f"total requests: {total_req}")
-
