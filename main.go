@@ -18,10 +18,10 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// TODO: respond with ID
 // TODO: return null in case of a successful rule creation
 // TODO: add apache bench explanation to readme
 type priceChangeRequest struct {
+	Id           int    `json:"id"`
 	Origin       string `json:"origin"`
 	Destination  string `json:"destination"`
 	Airline      string `json:"airline"`
@@ -85,8 +85,6 @@ var ctx = context.Background()
 var psqlConnect string
 var redis_opt redis.Options
 
-// TODO: combine percent and fixed in one call
-
 func main() {
 	load_env()
 
@@ -124,6 +122,8 @@ func add_markups(prices []priceChangeRequest) []priceChangeRequest {
 		arrPrice := []string{price.Origin, price.Destination, price.Airline, price.Agency, price.Supplier}
 		max_fixed := 0
 		max_percent := 0
+		max_id_fixed := 0
+		max_id_percent := 0
 		for i := 0; i < 32; i++ {
 			query := ""
 			for j := 0; j < 5; j++ {
@@ -132,20 +132,25 @@ func add_markups(prices []priceChangeRequest) []priceChangeRequest {
 				}
 				query = query + ","
 			}
-			fixed, percent := get_rule(query)
+			id, fixed, percent := get_rule(query)
 			if fixed > max_fixed {
 				max_fixed = fixed
+				max_id_fixed = id
 			}
 			if percent > max_percent {
 				max_percent = percent
+				max_id_percent = id
 			}
 
 		}
 		if max_percent*price.BasePrice/100 > max_fixed {
 			max_fixed = max_percent * price.BasePrice / 100
+			max_id_fixed = max_id_percent
 		}
 		prices[ind].Markup = max_fixed
 		prices[ind].PayablePrice = max_fixed + price.BasePrice
+		prices[ind].Id = max_id_fixed
+		fmt.Println(max_id_fixed, max_fixed)
 	}
 	return prices
 }
@@ -193,47 +198,64 @@ func creat_rules(rules []ruleCreationRequest) (r ruleCreationResponse) {
 	return ruleCreationResponse{Status: "SUCCESS"}
 }
 
-func get_rule(query string) (fixed, percent int) {
+func get_rule(query string) (id, fixed, percent int) {
 
 	rdb := redis.NewClient(&redis_opt)
 	defer rdb.Close()
-	var ans0, ans1 int
-	val0, err := rdb.Get(ctx, query+"0").Result()
+
+	val, err := rdb.Get(ctx, query).Result()
 	if err == redis.Nil {
-		ans0 = 0
+		id = 0
+		fixed = 0
+		percent = 0
 	} else if err != nil {
 		panic(err)
 	} else {
-		ans0, _ = strconv.Atoi(val0)
+		ans := strings.Split(val, ",")
+		id, _ = strconv.Atoi(ans[0])
+		fixed, _ = strconv.Atoi(ans[1])
+		percent, _ = strconv.Atoi(ans[2])
 	}
 
-	val1, err := rdb.Get(ctx, query+"1").Result()
-	if err == redis.Nil {
-		ans1 = 0
-	} else if err != nil {
-		panic(err)
-	} else {
-		ans1, _ = strconv.Atoi(val1)
-	}
-
-	return ans0, ans1
+	return
 }
-func set_rule(query string, valueType int, amount int) {
-	rdb := redis.NewClient(&redis_opt)
-	defer rdb.Close()
-	err := rdb.Set(ctx, query+strconv.Itoa(valueType), amount, 0).Err()
-	check_error(err)
 
+func set_rule(query string, valueType int, amount int) {
 	db, err := sql.Open("postgres", psqlConnect)
 	check_error(err)
 	defer db.Close()
-	upsertStmt := `INSERT INTO snap (rule,amount) VALUES ( $1 ,$2)
+
+	rows, err := db.Query(`SELECT "id", "fixed", "percent" FROM "snap" WHERE rule=$1`, query)
+	check_error(err)
+
+	id := 0
+	fixed := 0
+	percent := 0
+	for rows.Next() {
+		err = rows.Scan(&id, &fixed, &percent)
+		check_error(err)
+	}
+
+	if valueType == 0 {
+		fixed = amount
+	} else {
+		percent = amount
+	}
+
+	upsertStmt := `INSERT INTO snap (rule,fixed,percent) VALUES ( $1, $2, $3)
 	ON CONFLICT (rule)
-	DO UPDATE SET amount=$2;
+	DO UPDATE SET fixed=$2, percent=$3;
 	`
-	_, e := db.Exec(upsertStmt, query+strconv.Itoa(valueType), amount)
+	_, e := db.Exec(upsertStmt, query, fixed, percent)
 	check_error(e)
+
+	rdb := redis.NewClient(&redis_opt)
+	defer rdb.Close()
+	err = rdb.Set(ctx, query, strconv.Itoa(id)+","+strconv.Itoa(fixed)+","+strconv.Itoa(percent), 0).Err()
+	check_error(err)
+
 }
+
 func load_data() {
 
 	fmt.Println("loading data from postgreSQL to redis...")
@@ -244,25 +266,28 @@ func load_data() {
 	creatTableStmt := `CREATE TABLE IF NOT EXISTS snap(
 		id SERIAL PRIMARY KEY,
 		rule VARCHAR(100) UNIQUE NOT NULL, 
-		amount INT NOT NULL
+		fixed INT NOT NULL,
+		percent INT NOT NULL
 		);`
 	_, e := db.Exec(creatTableStmt)
 	check_error(e)
 
 	rdb := redis.NewClient(&redis_opt)
 
-	rows, err := db.Query(`SELECT "rule", "amount" FROM "snap"`)
+	rows, err := db.Query(`SELECT "id", "rule", "fixed", "percent" FROM "snap"`)
 	check_error(err)
 
 	defer rows.Close()
 	for rows.Next() {
+		var id int
 		var rule string
-		var amount int
+		var fixed int
+		var percent int
 
-		err = rows.Scan(&rule, &amount)
+		err = rows.Scan(&id, &rule, &fixed, &percent)
 		check_error(err)
 
-		err := rdb.Set(ctx, rule, amount, 0).Err()
+		err := rdb.Set(ctx, rule, strconv.Itoa(id)+","+strconv.Itoa(fixed)+","+strconv.Itoa(percent), 0).Err()
 		check_error(err)
 	}
 	fmt.Println("loading data is done!")
@@ -362,20 +387,24 @@ func env_exist_default(key, default_val string) {
 }
 func test(w http.ResponseWriter, r *http.Request) {
 	// fmt.Fprintf(w, "hello there\n")
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
-	})
-	defer rdb.Close()
-	a, _ := rdb.Ping(ctx).Result()
+	// rdb := redis.NewClient(&redis_opt)
+	// defer rdb.Close()
+	// a, _ := rdb.Ping(ctx).Result()
 
-	fmt.Fprint(w, a)
+	// fmt.Fprint(w, a)
 
-	db, err := sql.Open("postgres", psqlConnect)
-	check_error(err)
-	defer db.Close()
-	b := db.Ping()
+	// db, err := sql.Open("postgres", psqlConnect)
+	// check_error(err)
+	// defer db.Close()
+	// b := db.Ping()
 
-	fmt.Fprint(w, b)
+	// fmt.Fprint(w, b)
+	fmt.Fprintln(w, os.Getenv("REDIS_HOST"))
+	fmt.Fprintln(w, os.Getenv("REDIS_PORT"))
+	fmt.Fprintln(w, os.Getenv("POSTGRES_HOST"))
+	fmt.Fprintln(w, os.Getenv("POSTGRES_PORT"))
+	fmt.Fprintln(w, os.Getenv("POSTGRES_USER"))
+	fmt.Fprintln(w, os.Getenv("POSTGRES_PASSWORD"))
+	fmt.Fprintln(w, os.Getenv("POSTGRES_DB_NAME"))
 
 }
