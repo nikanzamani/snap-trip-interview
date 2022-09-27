@@ -18,7 +18,9 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// TODO: add apache bench explanation to readme
+// TODO: translate to fast http
+// TODO: concurrent get rul requests
+// TODO: release binary
 type priceChangeRequest struct {
 	Id           *int   `json:"id"`
 	Origin       string `json:"origin"`
@@ -97,7 +99,7 @@ func main() {
 
 	http.HandleFunc("/rule_creation", rule_creation)
 
-	log.Fatal((http.ListenAndServe(":8080", nil)))
+	log.Fatal((http.ListenAndServe(os.ExpandEnv(":$APP_PORT"), nil)))
 }
 
 func test(w http.ResponseWriter, r *http.Request) {
@@ -321,6 +323,7 @@ func load_env() {
 	env_exist_default("POSTGRES_PORT", "5432")
 	env_exist_default("POSTGRES_USER", "postgres")
 	env_exist_default("POSTGRES_DB_NAME", os.Getenv("POSTGRES_USER"))
+	env_exist_default("APP_PORT", "8080")
 	psqlConnect = "host=$POSTGRES_HOST port=$POSTGRES_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB_NAME sslmode=disable"
 	psqlConnect = os.ExpandEnv(psqlConnect)
 
