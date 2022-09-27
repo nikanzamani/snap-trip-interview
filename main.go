@@ -18,10 +18,9 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// TODO: return null in case of a successful rule creation
 // TODO: add apache bench explanation to readme
 type priceChangeRequest struct {
-	Id           int    `json:"id"`
+	Id           *int   `json:"id"`
 	Origin       string `json:"origin"`
 	Destination  string `json:"destination"`
 	Airline      string `json:"airline"`
@@ -44,8 +43,8 @@ type ruleCreationRequest struct {
 	AmountValue int      `json:"amountValue"`
 }
 type ruleCreationResponse struct {
-	Status  string `json:"status"`
-	Message string `json:"message"`
+	Status  string  `json:"status"`
+	Message *string `json:"message"`
 }
 
 func (r ruleCreationRequest) validate_rule() (b bool) {
@@ -101,6 +100,10 @@ func main() {
 	log.Fatal((http.ListenAndServe(":8080", nil)))
 }
 
+func test(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "hello there\n")
+}
+
 func price_request(w http.ResponseWriter, r *http.Request) {
 	var prices []priceChangeRequest
 	json.NewDecoder(r.Body).Decode(&prices)
@@ -149,8 +152,9 @@ func add_markups(prices []priceChangeRequest) []priceChangeRequest {
 		}
 		prices[ind].Markup = max_fixed
 		prices[ind].PayablePrice = max_fixed + price.BasePrice
-		prices[ind].Id = max_id_fixed
-		fmt.Println(max_id_fixed, max_fixed)
+		if max_fixed != 0 {
+			prices[ind].Id = newInt(max_id_fixed)
+		}
 	}
 	return prices
 }
@@ -163,7 +167,7 @@ func creat_rules(rules []ruleCreationRequest) (r ruleCreationResponse) {
 	for ind, rule := range rules {
 		b := rule.validate_rule()
 		if !b {
-			return ruleCreationResponse{Status: "FAILED", Message: "invalid rule at index: " + strconv.Itoa(ind)}
+			return ruleCreationResponse{Status: "FAILED", Message: newString("invalid rule at index: " + strconv.Itoa(ind))}
 		}
 	}
 
@@ -385,26 +389,10 @@ func env_exist_default(key, default_val string) {
 		os.Setenv(key, default_val)
 	}
 }
-func test(w http.ResponseWriter, r *http.Request) {
-	// fmt.Fprintf(w, "hello there\n")
-	// rdb := redis.NewClient(&redis_opt)
-	// defer rdb.Close()
-	// a, _ := rdb.Ping(ctx).Result()
 
-	// fmt.Fprint(w, a)
-
-	// db, err := sql.Open("postgres", psqlConnect)
-	// check_error(err)
-	// defer db.Close()
-	// b := db.Ping()
-
-	// fmt.Fprint(w, b)
-	fmt.Fprintln(w, os.Getenv("REDIS_HOST"))
-	fmt.Fprintln(w, os.Getenv("REDIS_PORT"))
-	fmt.Fprintln(w, os.Getenv("POSTGRES_HOST"))
-	fmt.Fprintln(w, os.Getenv("POSTGRES_PORT"))
-	fmt.Fprintln(w, os.Getenv("POSTGRES_USER"))
-	fmt.Fprintln(w, os.Getenv("POSTGRES_PASSWORD"))
-	fmt.Fprintln(w, os.Getenv("POSTGRES_DB_NAME"))
-
+func newString(s string) *string {
+	return &s
+}
+func newInt(i int) *int {
+	return &i
 }
