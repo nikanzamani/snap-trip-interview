@@ -11,21 +11,21 @@ to run the pricing engine you will need these prerequisites
 1) a postgreSQL database instance
 2) a redis cache server instance
 
-as for the main server, you can either compile it from the source code from [main.go](https://https://github.com/nikanzamani/snap-trip-interview/blob/main/main.go) file or use the precompiled executables from the [release](https://) page. alternatively you can also use the official docker image from [dockerhub](https://) for easier deployment  
+as for the main server, you can either compile it from the source code from [main.go](https://https://github.com/nikanzamani/snap-trip-interview/blob/main/main.go) file or use the precompiled executables from the [release](https://github.com/nikanzamani/snap-trip-interview/releases/tag/v1.0.0) page. alternatively you can also use the official docker image from [dockerhub](https://hub.docker.com/r/nikanz/snaptrip-interview) for easier deployment  
 
 ### 2.1. Local
-after initialling both the postgres and redis servers you can either download the precompiled executable for your specific operating system and run it with commandline, mentioned operations  in Linux based operation systems would be as follows:  
+after initialling both the postgres and redis servers you can either download the precompiled executable for linux and run it with commandline, mentioned operations  in Linux based operation systems would be as follows:  
 
 ```bash
-wget -
-chmod +x -
-./-
+wget https://github.com/nikanzamani/snap-trip-interview/releases/download/v1.0.0/snap-trip-interview
+chmod +x snap-trip-interview 
+./snap-trip-interview 
 ```
 or you can build the project from source code as been shown bellow:
 ```bash
-go mod tidy
+go mod download
 go build 
-./-
+./snap-trip-interview 
 ```
 before running it though, you need to set some environment variables related to database and cache connection by either setting them directly or putting them in a `.env` file in the same directory as the main executable. you can see the full list of environment variables and their default values bellow. there is also an example `.env` file in the repository
 
@@ -84,7 +84,7 @@ before running it though, you need to set some environment variables related to 
 
 
 ### 2.2. Docker
-you can see the full documentation in [dockerhub](https://) 
+you can see the full documentation in [dockerhub](https://hub.docker.com/r/nikanz/snaptrip-interview) 
 
 ## 3. Usage
 to use the pricing engine you need to make an http post request to the related API endpoint. the endpoints are (`/price_request` and `/rule_creation`). there are example requests under project-document/[request-response](https://github.com/nikanzamani/snap-trip-interview/tree/main/project-document/request-response). relevant values for both request types (cities, agencies, airlines, suppliers) are also available at [valid](https://github.com/nikanzamani/snap-trip-interview/tree/main/valid)
@@ -102,4 +102,4 @@ ab -n 1000 -c 20 -p price_request.json localhost:8080/price_request
 ab -n 1000 -c 20 -p rule_creation.json localhost:8080/rule_creation
 ```
 
-also I suggest using local redis server for performance testing because of it's high impact on performance
+also I suggest using local redis server for performance testing because of containerized redis servers high impact on performance
